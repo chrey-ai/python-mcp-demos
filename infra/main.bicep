@@ -78,6 +78,9 @@ param keycloakMcpServerAudience string = 'mcp-server'
 @description('Flag to restrict ACR public network access (requires VPN for local image push when true)')
 param usePrivateAcr bool = false
 
+@description('Entra ID group ID for admin access to expense statistics (only used when mcpAuthProvider is entra_proxy)')
+param entraAdminGroupId string = ''
+
 @description('Flag to restrict Log Analytics public query access for increased security')
 param usePrivateLogAnalytics bool = false
 
@@ -95,6 +98,8 @@ param logfireToken string = ''
 // Derived booleans for backward compatibility in bicep modules
 var useKeycloak = mcpAuthProvider == 'keycloak'
 var useEntraProxy = mcpAuthProvider == 'entra_proxy'
+// Auth is considered enabled when either Keycloak or Entra OAuth Proxy is used
+var authEnabled = useKeycloak || useEntraProxy
 
 var resourceToken = toLower(uniqueString(subscription().id, name, location))
 var tags = { 'azd-env-name': name }
@@ -180,29 +185,36 @@ module cosmosDb 'br/public:avm/res/document-db/database-account:0.6.1' = {
     sqlDatabases: [
       {
         name: cosmosDbDatabaseName
-        containers: [
-          {
-            name: cosmosDbContainerName
-            kind: 'Hash'
-            paths: [
-              '/category'
-            ]
-          }
-          {
-            name: cosmosDbUserContainerName
-            kind: 'Hash'
-            paths: [
-              '/user_id'
-            ]
-          }
-          {
-            name: cosmosDbOAuthContainerName
-            kind: 'Hash'
-            paths: [
-              '/collection'
-            ]
-          }
-        ]
+        // Always create the base expenses container; add auth-related containers only when authentication is enabled
+        containers: concat(
+          [
+            {
+              name: cosmosDbContainerName
+              kind: 'Hash'
+              paths: [
+                '/category'
+              ]
+            }
+          ],
+          authEnabled
+            ? [
+                {
+                  name: cosmosDbUserContainerName
+                  kind: 'Hash'
+                  paths: [
+                    '/user_id'
+                  ]
+                }
+                {
+                  name: cosmosDbOAuthContainerName
+                  kind: 'Hash'
+                  paths: [
+                    '/collection'
+                  ]
+                }
+              ]
+            : []
+        )
       }
     ]
   }
@@ -234,6 +246,17 @@ module applicationInsights 'br/public:avm/res/insights/component:0.4.2' = if (us
     workspaceResourceId: logAnalyticsWorkspace.?outputs.resourceId!
     kind: 'web'
     applicationType: 'web'
+  }
+}
+
+// Portal dashboard with Log Analytics queries visualizing MCP tools metrics
+module applicationInsightsDashboard 'appinsights-dashboard.bicep' = if (useAppInsights) {
+  name: 'application-insights-dashboard'
+  scope: resourceGroup
+  params: {
+    name: '${prefix}-dashboard'
+    location: location
+    applicationInsightsName: applicationInsights!.outputs.name
   }
 }
 
@@ -762,8 +785,7 @@ module server 'server.bicep' = {
     openTelemetryPlatform: openTelemetryPlatform
     exists: serverExists
     // Keycloak authentication configuration (only when enabled)
-    keycloakRealmUrl: useKeycloak ? '${keycloak!.outputs.uri}/realms/${keycloakRealmName}' : ''
-    keycloakTokenIssuer: useKeycloak ? '${keycloakMcpServerBaseUrl}/realms/${keycloakRealmName}' : ''
+    keycloakRealmUrl: useKeycloak ? '${keycloak!.outputs.uri}/auth/realms/${keycloakRealmName}' : ''
     keycloakMcpServerBaseUrl: useKeycloak ? keycloakMcpServerBaseUrl : ''
     keycloakMcpServerAudience: keycloakMcpServerAudience
     // Azure/Entra ID OAuth Proxy authentication configuration (only when enabled)
@@ -771,6 +793,7 @@ module server 'server.bicep' = {
     entraProxyClientSecret: useEntraProxy ? entraProxyClientSecret : ''
     entraProxyBaseUrl: useEntraProxy ? entraProxyMcpServerBaseUrl : ''
     tenantId: useEntraProxy ? tenant().tenantId : ''
+    entraAdminGroupId: useEntraProxy ? entraAdminGroupId : ''
     mcpAuthProvider: mcpAuthProvider
     logfireToken: logfireToken
   }
@@ -790,7 +813,7 @@ module agent 'agent.bicep' = {
     openAiDeploymentName: openAiDeploymentName
     openAiEndpoint: openAi.outputs.endpoint
     mcpServerUrl: useKeycloak ? 'https://mcproutes.${containerApps.outputs.defaultDomain}/mcp' : '${server.outputs.uri}/mcp'
-    keycloakRealmUrl: useKeycloak ? '${keycloak.outputs.uri}/realms/${keycloakRealmName}' : ''
+    keycloakRealmUrl: useKeycloak ? '${keycloak.outputs.uri}/auth/realms/${keycloakRealmName}' : ''
     exists: agentExists
   }
 }
@@ -926,9 +949,10 @@ output KEYCLOAK_MCP_SERVER_BASE_URL string = useKeycloak ? keycloakMcpServerBase
 
 // Keycloak and MCP Server routing outputs (only populated when mcpAuthProvider is keycloak)
 output KEYCLOAK_REALM_URL string = useKeycloak ? '${httpRoutes!.outputs.routeConfigUrl}/auth/realms/${keycloakRealmName}' : ''
-output KEYCLOAK_ADMIN_CONSOLE string = useKeycloak ? '${httpRoutes!.outputs.routeConfigUrl}/auth/admin' : ''
+output KEYCLOAK_ADMIN_CONSOLE string = useKeycloak ? '${httpRoutes!.outputs.routeConfigUrl}/auth/admin/master/console' : ''
 output KEYCLOAK_DIRECT_URL string = keycloak.outputs.uri
-output KEYCLOAK_TOKEN_ISSUER string = useKeycloak ? '${keycloakMcpServerBaseUrl}/realms/${keycloakRealmName}' : ''
+output KEYCLOAK_TOKEN_ISSUER string = useKeycloak ? '${keycloakMcpServerBaseUrl}/auth/realms/${keycloakRealmName}' : ''
+output KEYCLOAK_AGENT_REALM_URL string = useKeycloak ? '${keycloak!.outputs.uri}/auth/realms/${keycloakRealmName}' : ''
 
 // Auth provider for env scripts
 output MCP_AUTH_PROVIDER string = mcpAuthProvider

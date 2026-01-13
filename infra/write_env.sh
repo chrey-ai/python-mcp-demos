@@ -55,6 +55,7 @@ KEYCLOAK_REALM_URL=$(get_azd_value KEYCLOAK_REALM_URL)
 if [ -n "$KEYCLOAK_REALM_URL" ]; then
   echo "KEYCLOAK_REALM_URL=${KEYCLOAK_REALM_URL}" >> "$ENV_FILE_PATH"
   write_env_if_set KEYCLOAK_TOKEN_ISSUER
+  write_env_if_set KEYCLOAK_AGENT_REALM_URL
 fi
 
 # Entra proxy env vars (only if ENTRA_PROXY_AZURE_CLIENT_ID is set)
@@ -63,6 +64,7 @@ if [ -n "$ENTRA_PROXY_AZURE_CLIENT_ID" ]; then
   echo "ENTRA_PROXY_AZURE_CLIENT_ID=${ENTRA_PROXY_AZURE_CLIENT_ID}" >> "$ENV_FILE_PATH"
   write_env ENTRA_PROXY_AZURE_CLIENT_SECRET
   write_env ENTRA_PROXY_MCP_SERVER_BASE_URL
+  write_env_if_set ENTRA_ADMIN_GROUP_ID
 fi
 echo "MCP_ENTRY=$(azd env get-value MCP_ENTRY)" >> "$ENV_FILE_PATH"
 echo "MCP_SERVER_URL=$(azd env get-value MCP_SERVER_URL)" >> "$ENV_FILE_PATH"

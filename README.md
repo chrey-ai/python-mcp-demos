@@ -18,6 +18,7 @@ A demonstration project showcasing Model Context Protocol (MCP) implementations 
 - [Deploy to Azure with private networking](#deploy-to-azure-with-private-networking)
 - [Deploy to Azure with Keycloak authentication](#deploy-to-azure-with-keycloak-authentication)
 - [Deploy to Azure with Entra OAuth Proxy](#deploy-to-azure-with-entra-oauth-proxy)
+- [Resources](#resources)
 
 ## Getting started
 
@@ -77,7 +78,7 @@ If you're not using one of the above options, then you'll need to:
 This project includes MCP servers in the [`servers/`](servers/) directory:
 
 | File | Description |
-|------|-------------|
+| ---- | ----------- |
 | [servers/basic_mcp_stdio.py](servers/basic_mcp_stdio.py) | MCP server with stdio transport for VS Code integration |
 | [servers/basic_mcp_http.py](servers/basic_mcp_http.py) | MCP server with HTTP transport on port 8000 |
 | [servers/deployed_mcp.py](servers/deployed_mcp.py) | MCP server for Azure deployment with Cosmos DB and optional Keycloak auth |
@@ -200,7 +201,7 @@ You can use the [.NET Aspire Dashboard](https://learn.microsoft.com/dotnet/aspir
 This project includes example agents in the [`agents/`](agents/) directory that demonstrate how to connect AI agents to MCP servers:
 
 | File | Description |
-|------|-------------|
+| ---- | ----------- |
 | [agents/agentframework_learn.py](agents/agentframework_learn.py) | Microsoft Agent Framework integration with MCP |
 | [agents/agentframework_http.py](agents/agentframework_http.py) | Microsoft Agent Framework integration with local Expenses MCP server |
 | [agents/langchainv1_http.py](agents/langchainv1_http.py) | LangChain agent with MCP integration |
@@ -312,10 +313,16 @@ cd servers && uvicorn deployed_mcp:app --host 0.0.0.0 --port 8000
 
 ### Viewing traces in Azure Application Insights
 
-By default, OpenTelemetry tracing is enabled for the deployed MCP server, sending traces to Azure Application Insights.
+By default, OpenTelemetry tracing is enabled for the deployed MCP server, sending traces to Azure Application Insights. To bring up a dashboard of metrics and traces, run:
+
+```shell
+azd monitor
+```
+
+Or you can use Application Insights directly:
 
 1. Open the Azure Portal and navigate to the Application Insights resource created during deployment (named `<project-name>-appinsights`).
-2. In Application Insights, go to "Transaction Search" to view traces from the MCP server
+2. In Application Insights, go to "Transaction Search" to view traces from the MCP server.
 3. You can filter and analyze traces to monitor performance and diagnose issues.
 
 ### Viewing traces in Logfire
@@ -374,10 +381,12 @@ When using VNet configuration, additional Azure resources are provisioned:
 
 This project supports deploying with OAuth 2.0 authentication using Keycloak as the identity provider, implementing the [MCP OAuth specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) with Dynamic Client Registration (DCR).
 
+[📺 Watch a demo video of Keycloak integration](https://youtu.be/lpH8PI4JgEY)
+
 ### What gets deployed
 
 | Component | Description |
-|-----------|-------------|
+| --------- | ----------- |
 | **Keycloak Container App** | Keycloak 26.0 with pre-configured realm |
 | **HTTP Route Configuration** | Rule-based routing: `/auth/*` → Keycloak, `/*` → MCP Server |
 | **OAuth-protected MCP Server** | FastMCP with JWT validation against Keycloak's JWKS endpoint |
@@ -426,28 +435,50 @@ This project supports deploying with OAuth 2.0 authentication using Keycloak as 
 
    Login with `admin` and your configured password.
 
-### Testing with the agent
+### Use Keycloak OAuth MCP server with GitHub Copilot
 
-1. Generate the local environment file (automatically created after `azd up`):
+The Keycloak deployment supports Dynamic Client Registration (DCR), which allows VS Code to automatically register as an OAuth client. VS Code redirect URIs are pre-configured in the Keycloak realm.
 
-   ```bash
-   ./infra/write_env.sh
+To use the deployed MCP server with GitHub Copilot Chat:
+
+1. To avoid conflicts, stop the MCP servers from `mcp.json` and disable the expense MCP servers in GitHub Copilot Chat tools.
+2. Select "MCP: Add Server" from the VS Code Command Palette
+3. Select "HTTP" as the server type
+4. Enter the URL of the MCP server from `azd env get-value MCP_SERVER_URL`
+5. You should see a Keycloak authentication screen open in your browser. Select "Allow access":
+
+   ![Keycloak allow access screen](screenshots/kc-allow-1.jpg)
+
+6. Sign in with a Keycloak user (e.g., `testuser` / `testpass` for the pre-configured demo user):
+
+   ![Keycloak sign-in screen](screenshots/kc-signin-2.jpg)
+
+7. After authentication, the browser will redirect back to VS Code:
+
+   ![VS Code redirect after Keycloak sign-in](screenshots/kc-redirect-3.jpg)
+
+8. Enable the MCP server in GitHub Copilot Chat tools:
+
+   ![Select MCP tools in GitHub Copilot](screenshots/kc-select-tools-4.jpg)
+
+9. Test it with an expense tracking query:
+
+   ```text
+   Log expense for 75 dollars of office supplies on my visa last Friday
    ```
 
-   This creates `.env` with `KEYCLOAK_REALM_URL`, `MCP_SERVER_URL`, and Azure OpenAI settings.
+   ![Example GitHub Copilot Chat with Keycloak auth](screenshots/kc-chat-5.jpg)
 
-2. Run the agent:
+10. Verify the expense was added by checking the Cosmos DB `user-expenses` container in the Azure Portal or by asking GitHub Copilot Chat:
 
-   ```bash
-   uv run agents/agentframework_http.py
-   ```
-
-   The agent automatically detects `KEYCLOAK_REALM_URL` in the environment and authenticates via DCR + client credentials. On success, it will add an expense and print the result.
+    ```text
+    Show me my expenses from last week
+    ```
 
 ### Known limitations (demo trade-offs)
 
 | Item | Current | Production Recommendation | Why |
-|------|---------|---------------------------|-----|
+| ---- | ------- | ------------------------- | --- |
 | Keycloak mode | `start-dev` | `start` with proper config | Dev mode has relaxed security defaults |
 | Database | H2 in-memory | PostgreSQL | H2 doesn't persist data across restarts |
 | Replicas | 1 (due to H2) | Multiple with shared DB | H2 is in-memory, can't share state |
@@ -462,10 +493,12 @@ This project supports deploying with OAuth 2.0 authentication using Keycloak as 
 
 This project supports deploying with Microsoft Entra ID (Azure AD) authentication using FastMCP's built-in Azure OAuth proxy. This is an alternative to Keycloak that uses Microsoft Entra with your Azure tenant for identity management.
 
+[📺 Watch a demo video of Entra integration](https://youtu.be/nOPXUBOXU2M)
+
 ### What gets deployed with Entra OAuth
 
 | Component | Description |
-|-----------|-------------|
+| --------- | ----------- |
 | **Microsoft Entra App Registration** | Created automatically during provisioning with redirect URIs for local development, VS Code, and production |
 | **OAuth-protected MCP Server** | FastMCP with AzureProvider for OAuth authentication |
 | **CosmosDB OAuth Client Storage** | Persists OAuth client registrations across server restarts |
@@ -505,10 +538,10 @@ This project supports deploying with Microsoft Entra ID (Azure AD) authenticatio
 
 The following environment variables are automatically set by the deployment hooks:
 
-| Variable | Description |
-|----------|-------------|
-| `ENTRA_PROXY_AZURE_CLIENT_ID` | The App Registration's client ID |
-| `ENTRA_PROXY_AZURE_CLIENT_SECRET` | The App Registration's client secret |
+| Variable                            | Description                             |
+| ----------------------------------- | --------------------------------------- |
+| `ENTRA_PROXY_AZURE_CLIENT_ID`       | The App Registration's client ID        |
+| `ENTRA_PROXY_AZURE_CLIENT_SECRET`   | The App Registration's client secret    |
 
 These are then written to `.env` by the postprovision hook for local development.
 
@@ -518,7 +551,7 @@ After deployment, you can test locally with OAuth enabled:
 
 ```bash
 # Run the MCP server
-cd servers && uvicorn auth_mcp:app --host 0.0.0.0 --port 8000
+cd servers && uvicorn auth_entra_mcp:app --host 0.0.0.0 --port 8000
 ```
 
 The server will use the Entra App Registration for OAuth and CosmosDB for client storage.
@@ -556,3 +589,9 @@ To use the deployed MCP server with GitHub Copilot Chat:
 9. Verify the expense was added by checking the Cosmos DB `user-expenses` container in the Azure Portal.
 
    ![Cosmos DB user-expenses container](readme_userexpenses.png)
+
+## Resources
+
+* [Video series: Python + MCP (December 2025)](https://techcommunity.microsoft.com/blog/azuredevcommunityblog/learn-how-to-build-mcp-servers-with-python-and-azure/4479402)
+* [MCP for beginners: Online tutorial](https://github.com/microsoft/mcp-for-beginners)
+* [Python MCP servers on Azure Functions](https://github.com/Azure-Samples/mcp-sdk-functions-hosting-python)
